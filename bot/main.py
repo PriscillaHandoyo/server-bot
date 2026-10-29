@@ -1,4 +1,4 @@
-import asyncio
+import html
 import logging
 
 from telegram import Update
@@ -8,70 +8,66 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from bot import config
 from bot.auth import only_allowed
-from bot.checks import (
-    CheckResult,
-    check_containers,
-    check_disk,
-    check_sites,
-    check_tunnels,
-)
+from bot.monitor import format_result, monitor_job, run_all_checks
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     level=logging.INFO,
 )
-# httpx logs every request (including Telegram polling) - it's too noisy
+# httpx logs every request (including Telegram polling), far too noisy
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
-def format_section(title: str, results: list[CheckResult]) -> list[str]:
-    if not results:
-        return []
-    lines = [f"\n<b>{title}</b>"]
-    lines += [f"{'✅' if r.ok else '❌'} {r.name}: {r.detail}" for r in results]
-    return lines
 
 @only_allowed
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! Server bot activated.")
+    await update.message.reply_text(f"Hi! {config.SERVER_NAME} bot is running.")
+
 
 @only_allowed
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ Checking...")
 
-    # All checks are carried out simultaneously
-    sites, containers, tunnels = await asyncio.gather(
-        check_sites(config.SITES),
-        check_containers(config.CONTAINERS),
-        check_tunnels(config.TUNNEL_IDS),
-    )
-    disk = check_disk(config.DISK_PATH, config.DISK_LIMIT_PERCENT)
+    sections = await run_all_checks()
 
-    lines = [f"🖥 <b>Status {config.SERVER_NAME}</b>"]
-    lines += format_section("Website", sites)
-    lines += format_section("Container", containers)
-    lines += format_section("Tunnel", tunnels)
-    lines += format_section("Server", [disk])
+    lines = [f"🖥 <b>{html.escape(config.SERVER_NAME)} status</b>"]
+    for title, results in sections.items():
+        if results:
+            lines.append(f"\n<b>{title}</b>")
+            lines += [format_result(r) for r in results]
 
     await msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
-    # All uncaught errors end up here, consolidated into a single, neat log line
+    """Every uncaught error ends up here as a single tidy log line."""
     err = context.error
     if isinstance(err, Conflict):
-        log.error("This token is already being used by another program. Shut down the other bot first")
+        log.error("This bot token is used by another running program. Stop the other one first.")
     elif isinstance(err, NetworkError):
-        log.warning("Network disruption to Telegram: %s (automatic retry)", err)
+        log.warning("Network problem talking to Telegram: %s (will retry)", err)
     else:
         log.error("Unexpected error", exc_info=err)
+
 
 def main():
     app = Application.builder().token(config.BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status))
     app.add_error_handler(on_error)
-    log.info("Bot %s is running", config.SERVER_NAME)
+
+    # First run 10s after startup (gives the network time to come up),
+    # then every MONITOR_INTERVAL seconds.
+    app.job_queue.run_repeating(
+        monitor_job, interval=config.MONITOR_INTERVAL, first=10, name="monitor"
+    )
+
+    log.info(
+        "Bot for %s running (monitor every %ss, confirm after %s checks)",
+        config.SERVER_NAME, config.MONITOR_INTERVAL, config.CONFIRM_AFTER,
+    )
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

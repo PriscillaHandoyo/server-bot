@@ -1,4 +1,8 @@
-# All bot settings are read from the .env file here, so that other files can simply import them
+"""All bot settings, loaded from the .env file.
+
+The same code runs on both servers (home and Cikarang).
+Only the .env contents differ.
+"""
 
 import os
 
@@ -8,30 +12,42 @@ load_dotenv()
 
 
 def _list(name: str) -> list[str]:
-    # Read setting
+    """Read a comma-separated setting, e.g. "a, b,c" -> ["a", "b", "c"]."""
     return [x.strip() for x in os.getenv(name, "").split(",") if x.strip()]
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-# This server name appears in the title of Telegram messages (e.g., Cikarang or Home)
+# Name of this server, shown in Telegram messages (e.g. "Cikarang" or "Home")
 SERVER_NAME = os.getenv("SERVER_NAME", "Server")
 
-# Chat IDs permitted to use the bot. You may enter more than one; separate them with commas
+# Chat IDs allowed to use the bot. Comma-separated for more than one.
 ALLOWED_CHAT_IDS = {int(x) for x in _list("ALLOWED_CHAT_IDS")}
 
-# Monitored website. The name on the left appears in Telegram messages
+# Websites to monitor. The name on the left is shown in Telegram.
 SITES = {
     "SGE": "https://sge.phsecretlabs.com",
     "ESPE": "https://espe.phsecretlabs.com",
 }
 
-# Docker containers that must be running on this server. Leave empty to skip checks
+# Docker containers that must be running on this server. Empty = skip.
 CONTAINERS = _list("CONTAINERS")
 
-# Folder for which disk capacity is checked, along with the percentage threshold considered dangerous
+# Disk to check, and the usage percentage considered dangerous
 DISK_PATH = os.getenv("DISK_PATH", "/")
 DISK_LIMIT_PERCENT = float(os.getenv("DISK_LIMIT_PERCENT", "85"))
 
-# Cloudflare Tunnel for which the number of connectors is checked (must be exactly 1)
-# Requires a `cloudflare` login (`~/.cloudflared/cert.pem`) on this server. Leave empty to skip the check
+# Cloudflare tunnels whose connector count is checked (must be exactly 1).
+# Needs a cloudflared login (~/.cloudflared/cert.pem) on this server. Empty = skip.
 TUNNEL_IDS = _list("TUNNEL_IDS")
+
+# Background monitor: how often to check (seconds), and how many checks
+# in a row a new state must be seen before we send a notification.
+MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
+CONFIRM_AFTER = int(os.getenv("CONFIRM_AFTER", "2"))
+
+# Monitor: seconds between automatic checks, and how many consecutive
+# results must agree before a change is reported (prevents alert spam
+# when something flaps up/down every minute)
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "60"))
+CONFIRM_AFTER = int(os.getenv("CONFIRM_AFTER", "2"))
