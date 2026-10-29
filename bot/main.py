@@ -1,12 +1,12 @@
 import html
 import logging
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.constants import ParseMode
 from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from bot import config
+from bot import actions, config
 from bot.auth import only_allowed
 from bot.monitor import format_result, monitor_job, run_all_checks
 
@@ -50,10 +50,24 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
         log.error("Unexpected error", exc_info=err)
 
 
+async def set_command_menu(app: Application) -> None:
+    """Fill Telegram's '/' menu with the commands available on this server."""
+    available = actions.get_actions()
+    commands = [BotCommand("status", "Check websites, containers, tunnel and disk")]
+    if config.APPS:
+        commands.append(BotCommand("restart", f"Restart an app ({', '.join(config.APPS)})"))
+    if "restart-tunnel" in available:
+        commands.append(BotCommand("restart_tunnel", "Restart the Cloudflare tunnel"))
+    if "reboot" in available:
+        commands.append(BotCommand("reboot", "Reboot this server"))
+    await app.bot.set_my_commands(commands)
+
+
 def main():
-    app = Application.builder().token(config.BOT_TOKEN).build()
+    app = Application.builder().token(config.BOT_TOKEN).post_init(set_command_menu).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status))
+    actions.register(app)
     app.add_error_handler(on_error)
 
     # First run 10s after startup (gives the network time to come up),

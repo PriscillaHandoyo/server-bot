@@ -46,8 +46,11 @@ TUNNEL_IDS = _list("TUNNEL_IDS")
 MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
 CONFIRM_AFTER = int(os.getenv("CONFIRM_AFTER", "2"))
 
-# Monitor: seconds between automatic checks, and how many consecutive
-# results must agree before a change is reported (prevents alert spam
-# when something flaps up/down every minute)
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "60"))
-CONFIRM_AFTER = int(os.getenv("CONFIRM_AFTER", "2"))
+# Actions. Leave empty / false to disable an action on this server.
+# APPS: apps that can be restarted with /restart <app>.
+#       Restarts every container whose name starts with "<app>-".
+APPS = [a.lower() for a in _list("APPS")]
+# Name of the systemd service running the Cloudflare tunnel on this server
+TUNNEL_SERVICE = os.getenv("TUNNEL_SERVICE", "").strip()
+# Allow /reboot. Keep false on your laptop!
+ALLOW_REBOOT = os.getenv("ALLOW_REBOOT", "false").strip().lower() in ("1", "true", "yes")
