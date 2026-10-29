@@ -1,4 +1,4 @@
-# server-bot
+# Server Bot
 
 A Telegram bot that monitors and manages two self-hosted NixOS servers
 (a home server and an off-site server in Cikarang) running Dockerized
