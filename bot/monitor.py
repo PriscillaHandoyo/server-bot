@@ -28,8 +28,7 @@ from bot.checks import (
 log = logging.getLogger(__name__)
 
 
-# ------------------------------------------------------------- run checks ---
-
+# Run checks
 async def run_all_checks() -> dict[str, list[CheckResult]]:
     """Run every configured check concurrently, grouped by section.
 
@@ -55,8 +54,7 @@ def format_result(r: CheckResult) -> str:
     return f"{'✅' if r.ok else '❌'} {html.escape(r.name)}: {html.escape(r.detail)}"
 
 
-# ---------------------------------------------------------- state tracking ---
-
+# State tracking
 @dataclass
 class CheckState:
     confirmed: bool          # the state we last told the user about
@@ -101,8 +99,7 @@ def update_states(
     return changed
 
 
-# -------------------------------------------------------------- telegram ---
-
+# Telegram
 async def notify(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Send a message to every allowed chat. One failing chat won't stop the rest."""
     for chat_id in config.ALLOWED_CHAT_IDS:
