@@ -1,7 +1,6 @@
 # Server Bot
 
-A Telegram bot that monitors and manages two self-hosted NixOS servers
-(a home server and an off-site server in Cikarang) running Dockerized
+A Telegram bot that monitors and manages two self-hosted NixOS servers running Dockerized
 business apps behind Cloudflare Tunnels.
 
 The same code runs on both servers; only the `.env` differs. Each bot also
