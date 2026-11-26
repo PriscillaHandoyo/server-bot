@@ -41,6 +41,19 @@ DISK_LIMIT_PERCENT = float(os.getenv("DISK_LIMIT_PERCENT", "85"))
 # Needs a cloudflared login (~/.cloudflared/cert.pem) on this server. Empty = skip.
 TUNNEL_IDS = _list("TUNNEL_IDS")
 
+# systemd services (sync, backup...) whose last run must have succeeded. Empty = skip.
+# e.g. UNITS=sge-pull-db,sge-pull-files,sge-backup
+UNITS = _list("UNITS")
+
+# Automatic failover: move FAILOVER_SITE to this server when the other server dies.
+# Leave FAILOVER_SCRIPT empty to disable. FAILOVER_SITE must match a name in SITES.
+FAILOVER_SITE = os.getenv("FAILOVER_SITE", "").strip()          # e.g. SGE
+FAILOVER_PEER = os.getenv("FAILOVER_PEER", "").strip()          # Tailscale IP of the other server
+FAILOVER_SCRIPT = os.getenv("FAILOVER_SCRIPT", "").strip()      # e.g. /home/pialabs/failover-sge-ke-rumah.sh
+FAILOVER_FLAG = os.getenv("FAILOVER_FLAG", "").strip()          # e.g. /srv/apps/sge/PRIMARY_HERE
+FAILOVER_AFTER_MIN = float(os.getenv("FAILOVER_AFTER_MIN", "5"))
+AUTO_FAILOVER = os.getenv("AUTO_FAILOVER", "false").strip().lower() in ("1", "true", "yes")
+
 # Background monitor: how often to check (seconds), and how many checks
 # in a row a new state must be seen before we send a notification.
 MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))

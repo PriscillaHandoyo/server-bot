@@ -7,7 +7,6 @@ To avoid spam when a service flaps (up, down, up, down...), a new state only
 counts once it has been seen CONFIRM_AFTER times in a row.
 """
 
-import asyncio
 import html
 import logging
 from dataclasses import dataclass
@@ -16,36 +15,11 @@ from datetime import datetime
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from bot import config
-from bot.checks import (
-    CheckResult,
-    check_containers,
-    check_disk,
-    check_sites,
-    check_tunnels,
-)
+from bot import config, failover
+# run_all_checks lives in checks.py; main.py imports it from here.
+from bot.checks import CheckResult, run_all_checks
 
 log = logging.getLogger(__name__)
-
-
-# Run checks
-async def run_all_checks() -> dict[str, list[CheckResult]]:
-    """Run every configured check concurrently, grouped by section.
-
-    Shared by /status and the background monitor, so both always agree.
-    """
-    sites, containers, tunnels = await asyncio.gather(
-        check_sites(config.SITES),
-        check_containers(config.CONTAINERS),
-        check_tunnels(config.TUNNEL_IDS),
-    )
-    disk = check_disk(config.DISK_PATH, config.DISK_LIMIT_PERCENT)
-    return {
-        "Website": list(sites),
-        "Container": containers,
-        "Tunnel": list(tunnels),
-        "Server": [disk],
-    }
 
 
 def format_result(r: CheckResult) -> str:
@@ -54,7 +28,8 @@ def format_result(r: CheckResult) -> str:
     return f"{'✅' if r.ok else '❌'} {html.escape(r.name)}: {html.escape(r.detail)}"
 
 
-# State tracking
+# ---------------------------------------------------------- state tracking ---
+
 @dataclass
 class CheckState:
     confirmed: bool          # the state we last told the user about
@@ -99,7 +74,8 @@ def update_states(
     return changed
 
 
-# Telegram
+# -------------------------------------------------------------- telegram ---
+
 async def notify(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Send a message to every allowed chat. One failing chat won't stop the rest."""
     for chat_id in config.ALLOWED_CHAT_IDS:
@@ -149,3 +125,6 @@ async def monitor_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     elif changed:
         log.info("State changed: %s", ", ".join(f"{r.name}={r.ok}" for r in changed))
         await notify(context, build_change_message(changed))
+
+    # Move the watched app here if the other server is really gone
+    await failover.evaluate(context, results, notify)

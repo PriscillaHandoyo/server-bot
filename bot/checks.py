@@ -1,4 +1,4 @@
-# Checking functions. All return CheckResult so the format all the same.
+"""Health checks. Every check returns a CheckResult so the format is uniform."""
 
 import asyncio
 import json
@@ -7,26 +7,29 @@ from dataclasses import dataclass
 
 import httpx
 
+from bot import config
+
 
 @dataclass
 class CheckResult:
-    name:str #ex., "SGE"
-    ok:bool #true if its healty
-    detail:str #brief explanation to be displayed on Telegram
+    name: str      # e.g. "SGE"
+    ok: bool       # True when healthy
+    detail: str    # short explanation shown in Telegram
 
-# Helper
+
+# ---------------------------------------------------------------- helper ---
+
 async def run_command(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
-    """Execute shell commands WITHOUT freezing the bot.
-    
-        Use `create_subprocess_exec` (instead of `subprocess.run`)
-        so that the bot can continue responding to other messages while waiting for
-        the command to finish
+    """Run a shell command WITHOUT freezing the bot.
 
-        Returns `(exit_code, stdout, stderr)`
+    Uses create_subprocess_exec (not subprocess.run), so while we wait for
+    the command, the bot can still answer other messages.
+    Returns (exit_code, stdout, stderr).
     """
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
+            stdin=asyncio.subprocess.DEVNULL,   # never wait for keyboard input
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -38,31 +41,34 @@ async def run_command(*args: str, timeout: float = 15.0) -> tuple[int, str, str]
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        return 124, "", f"timeout after {timeout:.0f} seconds"
+        return 124, "", f"timed out after {timeout:g} seconds"
 
     return proc.returncode, out.decode().strip(), err.decode().strip()
 
-# Website
-# Meaning of error statuses that frequently appear via Cloudflare Tunnel
+
+# --------------------------------------------------------------- website ---
+
+# Meaning of error codes commonly seen through a Cloudflare Tunnel
 STATUS_MEANING = {
-    500: "Error within the application (backend crash)",
-    502: "Bad gateway: the tunnel is active, but the application is not responding",
-    503: "Application is currently unavailable",
-    504: "Gateway timeout: the application took too long to respond",
-    521: "Destination server refused the connection",
+    500: "Error inside the app (backend crashed)",
+    502: "Bad gateway: tunnel is up, but the app isn't responding",
+    503: "App unavailable",
+    504: "Gateway timeout: the app took too long to respond",
+    521: "Origin server refused the connection",
     522: "Connection to the server timed out",
-    530: "Cloudflare tunnel disconnected/server not connected",
+    530: "Cloudflare tunnel is down / server not connected",
 }
 
-async def check_site(name: str, url:str, timeout: float = 10.0) -> CheckResult:
-    # Open one website and report the results
+
+async def check_site(name: str, url: str, timeout: float = 10.0) -> CheckResult:
+    """Open one website and report the result."""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             response = await client.get(url)
     except httpx.TimeoutException:
-        return CheckResult(name, False, f"Timeout, no response within {timeout:.0f} seconds")
+        return CheckResult(name, False, f"Timeout, no response within {timeout:g} seconds")
     except httpx.RequestError as e:
-        # DNS failure, internet outage, certificate issues, etc
+        # DNS failure, no internet, certificate problem, etc.
         return CheckResult(name, False, f"Can't connect ({e.__class__.__name__})")
 
     code = response.status_code
@@ -75,12 +81,14 @@ async def check_site(name: str, url:str, timeout: float = 10.0) -> CheckResult:
 
 
 async def check_sites(sites: dict[str, str]) -> list[CheckResult]:
-    # Check multiple websites at once (in parallel, so you don't have to wait for them one by one)
+    """Check several websites at once (in parallel, not one by one)."""
     return await asyncio.gather(*(check_site(name, url) for name, url in sites.items()))
 
-# Disk
+
+# ------------------------------------------------------------------ disk ---
+
 def check_disk(path: str = "/", limit_percent: float = 85.0) -> CheckResult:
-    # Check the percentage of disk space used. No need for async, as it's instantaneous
+    """Check how full the disk is. Not async because it's instant."""
     try:
         usage = shutil.disk_usage(path)
     except OSError as e:
@@ -91,29 +99,33 @@ def check_disk(path: str = "/", limit_percent: float = 85.0) -> CheckResult:
     detail = f"{percent:.0f}% used, {free_gb:.1f} GB remaining"
     return CheckResult("Disk", percent < limit_percent, detail)
 
-# Container
+
+# ------------------------------------------------------------- container ---
+
 async def check_containers(names: list[str]) -> list[CheckResult]:
-    # Ensure all containers in `names` are running
+    """Make sure every container in `names` is running."""
     if not names:
         return []
 
     code, out, err = await run_command("docker", "ps", "--format", "{{.Names}}")
     if code != 0:
-        return [CheckResult("Docker", False, f"Can't check container: {err or code}")]
+        return [CheckResult("Docker", False, f"Can't list containers: {err or code}")]
 
     running = set(out.splitlines())
     return [
-        CheckResult(name, name in running, "running" if name in running else "DEAD / can't be found")
+        CheckResult(name, name in running, "running" if name in running else "DOWN / not found")
         for name in names
     ]
 
-# Tunnel
-async def check_tunnel_connectors(tunnel_id: str) -> CheckResult:
-    """Each tunnel must have exactly one connector.
 
-        0 connectors = the tunnel is broken; the website becomes inaccessible.
-        2+ connectors = another machine has also connected (like the Mac case we saw recently),
-        causing requests tp be split, with some failing intermittently.
+# ---------------------------------------------------------------- tunnel ---
+
+async def check_tunnel_connectors(tunnel_id: str) -> CheckResult:
+    """A tunnel must have exactly 1 connector.
+
+    0 connectors  = tunnel is down, websites unreachable.
+    2+ connectors = another machine joined the tunnel (like the Mac incident),
+                    requests get split and some fail at random.
     """
     short_id = tunnel_id[:8]
     code, out, err = await run_command(
@@ -125,7 +137,7 @@ async def check_tunnel_connectors(tunnel_id: str) -> CheckResult:
     try:
         data = json.loads(out)
     except json.JSONDecodeError:
-        return CheckResult(f"Tunnel {short_id}", False, "The cloudflared output is unreadable")
+        return CheckResult(f"Tunnel {short_id}", False, "Couldn't parse cloudflared output")
 
     name = data.get("name") or short_id
     connectors = data.get("conns") or []
@@ -134,10 +146,75 @@ async def check_tunnel_connectors(tunnel_id: str) -> CheckResult:
     if count == 1:
         return CheckResult(f"Tunnel {name}", True, "1 connector")
     if count == 0:
-        return CheckResult(f"Tunnel {name}", False, "0 connector: tunnel PUTUS")
+        return CheckResult(f"Tunnel {name}", False, "0 connectors: tunnel is DOWN")
 
     archs = ", ".join(c.get("arch", "?") for c in connectors)
-    return CheckResult(f"Tunnel {name}", False, f"{count} connector ({archs}): another machine is connected too!")
+    return CheckResult(
+        f"Tunnel {name}", False, f"{count} connectors ({archs}): another machine joined!"
+    )
+
 
 async def check_tunnels(tunnel_ids: list[str]) -> list[CheckResult]:
     return await asyncio.gather(*(check_tunnel_connectors(t) for t in tunnel_ids))
+
+
+# --------------------------------------------------------------- services ---
+
+async def check_unit(unit: str) -> CheckResult:
+    """Did the last run of a systemd service (sync, backup...) succeed?
+
+    Catches jobs that fail silently, like a sync that keeps failing with
+    'Permission denied' for days while every website still looks fine.
+    """
+    code, out, err = await run_command(
+        "systemctl", "show", unit,
+        "--property=LoadState,ActiveState,Result,ExecMainExitTimestamp",
+    )
+    if code != 0:
+        return CheckResult(unit, False, f"Could not check: {err or code}")
+
+    props = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if props.get("LoadState") == "not-found":
+        return CheckResult(unit, False, "Service not found")
+
+    # "Wed 2026-11-25 11:32:01 WIB" -> "2026-11-25 11:32"
+    parts = props.get("ExecMainExitTimestamp", "").split()
+    when = f"{parts[1]} {parts[2][:5]}" if len(parts) >= 3 else ""
+
+    state = props.get("ActiveState", "")
+    result = props.get("Result", "")
+    if state == "failed" or result not in ("", "success"):
+        return CheckResult(unit, False, f"FAILED ({result or state})" + (f", last run {when}" if when else ""))
+    if state == "activating":
+        return CheckResult(unit, True, "running now")
+    return CheckResult(unit, True, f"last run OK {when}" if when else "OK (not run yet)")
+
+
+async def check_units(units: list[str]) -> list[CheckResult]:
+    return await asyncio.gather(*(check_unit(u) for u in units))
+
+
+# ------------------------------------------------------------------- all ---
+
+async def run_all_checks() -> dict[str, list[CheckResult]]:
+    """Run every check for this server, grouped by section.
+
+    Used by both /status and the automatic monitor, so the logic lives in one place.
+    Empty sections (e.g. no containers configured) are left out.
+    """
+    sites, containers, tunnels, units = await asyncio.gather(
+        check_sites(config.SITES),
+        check_containers(config.CONTAINERS),
+        check_tunnels(config.TUNNEL_IDS),
+        check_units(config.UNITS),
+    )
+    disk = check_disk(config.DISK_PATH, config.DISK_LIMIT_PERCENT)
+
+    sections = {
+        "Websites": list(sites),
+        "Containers": containers,
+        "Tunnels": list(tunnels),
+        "Services": list(units),
+        "Server": [disk],
+    }
+    return {title: results for title, results in sections.items() if results}
