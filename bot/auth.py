@@ -1,4 +1,4 @@
-# Restriction: only chat ID that is registered in ALLOWED_CHAT_IDS that can use the bot.
+"""Access guard: only chat IDs listed in ALLOWED_CHAT_IDS may use the bot."""
 
 import functools
 import logging
@@ -10,15 +10,18 @@ from bot.config import ALLOWED_CHAT_IDS
 
 log = logging.getLogger(__name__)
 
-def only_allowed(handler):
-    """ A decorator for command handlers.
-        Use it above each command function:
-            @only_allowed
-            async def status(update, context):...
 
-        If the sender is not from a registered chat ID, the handler will not be executed at all,
-        and the bot will remain silent (so as not to let unauthorized users know it is active).
-        Any attempted access is recorded in the logs.
+def only_allowed(handler):
+    """Decorator for command handlers.
+
+    Put it above every command function:
+
+        @only_allowed
+        async def status(update, context): ...
+
+    If the sender is not an allowed chat ID, the handler never runs and the
+    bot stays silent (so strangers can't tell the bot is alive).
+    The attempt is written to the log.
     """
 
     @functools.wraps(handler)

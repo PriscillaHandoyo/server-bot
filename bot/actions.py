@@ -35,7 +35,8 @@ log = logging.getLogger(__name__)
 CONFIRM_TIMEOUT = 60  # seconds
 
 
-# Registry
+# --------------------------------------------------------------- registry ---
+
 @dataclass(frozen=True)
 class Action:
     key: str      # internal id, also used inside button callback data
@@ -74,7 +75,8 @@ def get_actions() -> dict[str, Action]:
     return actions
 
 
-# Executor
+# -------------------------------------------------------------- executors ---
+
 async def restart_app(app: str) -> tuple[bool, str]:
     """Restart every container whose name starts with '<app>-'."""
     code, out, err = await run_command(
@@ -120,7 +122,8 @@ async def execute(key: str) -> tuple[bool, str]:
     return False, f"Unknown action: {key}"
 
 
-# Confirm
+# ---------------------------------------------------------------- confirm ---
+
 def confirm_keyboard(key: str) -> InlineKeyboardMarkup:
     issued_at = int(time.time())
     return InlineKeyboardMarkup([[
@@ -146,7 +149,8 @@ async def ask_or_explain(update: Update, key: str) -> None:
     await ask_confirmation(update, action)
 
 
-# Commands
+# --------------------------------------------------------------- commands ---
+
 @only_allowed
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/restart <app>, e.g. /restart sge"""
@@ -231,7 +235,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# Register
+# --------------------------------------------------------------- register ---
+
 def register(app: Application) -> None:
     app.add_handler(CommandHandler("restart", cmd_restart))
     app.add_handler(CommandHandler("restart_tunnel", cmd_restart_tunnel))
